@@ -201,3 +201,52 @@ test('Line comment before unindented block-seq in block-map (#525)', () => {
   const [doc] = Array.from(new Parser().parse(src))
   expect(CST.stringify(doc)).toBe(src)
 })
+
+test('Blank line after empty tagged map value in seq (#717)', () => {
+  const src = '- x: !!null\n\n- y\n'
+  const [doc] = Array.from(new Parser().parse(src)) as [CST.Document]
+  const seq = doc.value as CST.BlockSequence
+  const map = seq.items[0].value as CST.BlockMap
+  const pair = map.items[0]
+
+  expect(pair.sep?.map(token => token.type)).toEqual([
+    'map-value-ind',
+    'space',
+    'tag',
+    'newline'
+  ])
+  expect(seq.items[1].start.map(token => token.type)).toEqual([
+    'newline',
+    'seq-item-ind',
+    'space'
+  ])
+})
+
+test.each([
+  ['indented comment', '- x: !!null\n\n    # c\n- y\n'],
+  ['multiple blank lines', '- x: !!null\n\n\n- y\n'],
+  ['CRLF', '- x: !!null\r\n\r\n- y\r\n'],
+  ['nested map', '- a:\n    x: !!null\n\n- y\n'],
+  ['nested anchored map', '- a:\n    x: &a\n\n- y\n']
+])('preserves source layout for #717 %s', (_name, src) => {
+  const [doc] = Array.from(new Parser().parse(src))
+  expect(CST.stringify(doc)).toBe(src)
+})
+
+test('does not move a blank line after an untagged empty map value', () => {
+  const src = '- x:\n\n- y\n'
+  const [doc] = Array.from(new Parser().parse(src)) as [CST.Document]
+  const seq = doc.value as CST.BlockSequence
+  const map = seq.items[0].value as CST.BlockMap
+  const pair = map.items[0]
+
+  expect(pair.sep?.map(token => token.type)).toEqual([
+    'map-value-ind',
+    'newline',
+    'newline'
+  ])
+  expect(seq.items[1].start.map(token => token.type)).toEqual([
+    'seq-item-ind',
+    'space'
+  ])
+})

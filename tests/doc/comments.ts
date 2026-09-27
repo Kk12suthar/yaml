@@ -302,6 +302,52 @@ describe('parse comments', () => {
   })
 })
 
+describe('blank lines after empty tagged values (#717)', () => {
+  const normalizeTrailingSpaces = (src: string) => src.replace(/ +$/gm, '')
+  const roundTrip = (src: string) =>
+    normalizeTrailingSpaces(String(YAML.parseDocument(src)))
+
+  test.each([
+    ['tag', '- x: !!null\n\n- y\n', '- x: !!null\n\n- y\n'],
+    ['anchor', '- x: &a\n\n- y\n', '- x: &a\n\n- y\n'],
+    [
+      'tag and anchor',
+      '- x: &a !!null\n\n- y\n',
+      '- x: &a !!null\n\n- y\n'
+    ],
+    [
+      'custom tag',
+      '- type: entity\n  event: !type:CritSuccumbEvent\n\n- type: other\n',
+      '- type: entity\n  event: !type:CritSuccumbEvent ""\n\n- type: other\n'
+    ],
+    ['nested sequence', '- - x: !!null\n\n  - y\n', '- - x: !!null\n\n  - y\n'],
+    [
+      'nested map',
+      '- a:\n    x: !!null\n\n- y\n',
+      '- a:\n    x: !!null\n\n- y\n'
+    ],
+    [
+      'nested anchored map',
+      '- a:\n    x: &a\n\n- y\n',
+      '- a:\n    x: &a\n\n- y\n'
+    ]
+  ])(
+    'preserves the blank line for an empty %s value',
+    (_name, src, expected) => {
+      expect(roundTrip(src)).toBe(expected)
+    }
+  )
+
+  test.each([
+    '- x: !!null\n\n  y: 1\n',
+    'x: !!null\n\ny: 1\n',
+    '- x:\n\n- y\n',
+    '- x: 1\n\n- y\n'
+  ])('does not change an existing working shape', src => {
+    expect(roundTrip(src)).toBe(src)
+  })
+})
+
 describe('stringify comments', () => {
   describe('single-line comments', () => {
     test('plain', () => {

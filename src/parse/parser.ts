@@ -23,6 +23,18 @@ function includesToken(list: SourceToken[], type: SourceToken['type']) {
   return false
 }
 
+function getEmptyMapValueSep(token: Token | undefined): SourceToken[] | null {
+  if (token?.type !== 'block-map') return null
+  const item = token.items[token.items.length - 1]
+  if (!item) return null
+  if (item.sep && !item.value) {
+    return includesToken(item.sep, 'tag') || includesToken(item.sep, 'anchor')
+      ? item.sep
+      : null
+  }
+  return item.value ? getEmptyMapValueSep(item.value) : null
+}
+
 const logToken =
   typeof process !== 'undefined' && process.env?.LOG_TOKENS
     ? (token: string) => console.log('|', prettyToken(token))
@@ -157,6 +169,12 @@ export class Parser {
 
   /** On the same line with a block map key */
   private onKeyLine = false
+
+  /** Blank-line tokens waiting for an enclosing sequence item */
+  private pendingSeqItemStart?: {
+    seq: BlockSequence
+    start: SourceToken[]
+  }
 
   /** Top indicates the node that's currently being built */
   stack: Token[] = []
@@ -349,7 +367,13 @@ export class Parser {
         case 'block-seq': {
           const it = top.items[top.items.length - 1]
           if (it.value) top.items.push({ start: [], value: token })
-          else it.value = token
+          else {
+            it.value = token
+            if (this.pendingSeqItemStart?.seq === top) {
+              top.items.push({ start: this.pendingSeqItemStart.start })
+              this.pendingSeqItemStart = undefined
+            }
+          }
           break
         }
         case 'flow-collection': {
@@ -725,6 +749,43 @@ export class Parser {
           }
         }
       }
+    }
+    // An empty value with a tag or anchor has no scalar token to hold its
+    // trailing newline. Move blank-line tokens to the next parent seq item.
+    let parentSeq: BlockSequence | undefined
+    for (let i = this.stack.length - 2; i >= 0; --i) {
+      const parent = this.stack[i]
+      if (parent.type === 'block-seq') {
+        parentSeq = parent
+        break
+      }
+    }
+    const sep = getEmptyMapValueSep(map)
+    if (
+      this.type === 'seq-item-ind' &&
+      parentSeq?.indent === this.indent &&
+      this.indent < map.indent &&
+      sep
+    ) {
+      const nl: number[] = []
+      for (let i = 0; i < sep.length; ++i) {
+        const st = sep[i]
+        switch (st.type) {
+          case 'newline':
+            nl.push(i)
+            break
+          case 'space':
+          case 'comment':
+            break
+          default:
+            nl.length = 0
+        }
+      }
+      if (nl.length >= 2)
+        this.pendingSeqItemStart = {
+          seq: parentSeq,
+          start: sep.splice(nl[1])
+        }
     }
     this.pop()
     this.step()
